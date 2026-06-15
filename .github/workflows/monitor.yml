@@ -1,0 +1,65 @@
+name: UOD Admission Tracker
+
+on:
+  schedule:
+    # Checks every 5 minutes
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # Allows manual testing
+
+jobs:
+  check-update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Dependencies
+        run: pip install requests
+
+      - name: Get Current Page Hash
+        id: get_hash
+        run: |
+          CURRENT_HASH=$(python tracker.py)
+          echo "current_hash=$CURRENT_HASH" >> $GITHUB_OUTPUT
+
+      - name: Compare with Previous Hash
+        id: compare
+        run: |
+          LAST_HASH=""
+          if [ -f last_hash.txt ]; then
+            LAST_HASH=$(cat last_hash.txt)
+          fi
+          
+          CURRENT_HASH="${{ steps.get_hash.outputs.current_hash }}"
+          
+          if [ "$LAST_HASH" != "$CURRENT_HASH" ]; then
+            echo "change_detected=true" >> $GITHUB_OUTPUT
+          else
+            echo "change_detected=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send Discord Alert
+        if: steps.compare.outputs.change_detected == 'true'
+        run: |
+          curl -H "Content-Type: application/json" \
+               -d '{"content": "🚨 **UOD Admission Update!** \nChanges detected on: https://admission.uod.ac.in \nPlease check the website immediately."}' \
+               https://discord.com/api/webhooks/1516063592678428743/YFlAo5HrQljmEx3Af5m8HboU3B57TSXPbZp1HEt6pAuFYuRzRTkcpBPxKJJO6VvQMAsP
+
+      - name: Save New Hash
+        if: steps.compare.outputs.change_detected == 'true'
+        run: echo "${{ steps.get_hash.outputs.current_hash }}" > last_hash.txt
+
+      - name: Commit Changes
+        if: steps.compare.outputs.change_detected == 'true'
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add last_hash.txt
+          git commit -m "Update tracking hash"
+          git push
