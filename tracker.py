@@ -1,6 +1,7 @@
 import requests
 import hashlib
 import sys
+from bs4 import BeautifulSoup
 
 # Configuration
 TARGET_URL = "https://admission.uod.ac.in"
@@ -14,11 +15,19 @@ def main():
         response = requests.get(TARGET_URL, headers=HEADERS, timeout=10)
         response.raise_for_status()
         
-        # Create a unique fingerprint (hash) of the page content
-        # We use the text content to detect any changes in the HTML
-        page_hash = hashlib.md5(response.text.encode('utf-8')).hexdigest()
+        # Parse HTML and extract ONLY visible text
+        soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Print the hash so the automation workflow can read it
+        # Remove script, style, and meta tags (they often contain dynamic data)
+        for tag in soup(['script', 'style', 'meta', 'link', 'noscript']):
+            tag.decompose()
+        
+        # Get clean text content
+        text_content = soup.get_text(separator=' ', strip=True)
+        
+        # Create hash of only the meaningful text
+        page_hash = hashlib.md5(text_content.encode('utf-8')).hexdigest()
+        
         print(page_hash)
         
     except Exception as e:
