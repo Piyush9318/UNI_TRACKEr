@@ -1,8 +1,6 @@
 name: UOD Admission Tracker
 
 on:
-  schedule:
-    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -13,56 +11,62 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.9'
 
       - name: Install Dependencies
         run: pip install requests beautifulsoup4
 
-      - name: Get Current Page Hash
-        id: get_hash
+      - name: Continuous Monitoring (Every 10 seconds for 6 hours)
         run: |
-          CURRENT_HASH=$(python tracker.py)
-          echo "current_hash=$CURRENT_HASH" >> $GITHUB_OUTPUT
-
-      - name: Compare with Previous Hash
-        id: compare
-        run: |
-          LAST_HASH=""
-          if [ -f last_hash.txt ]; then
-            LAST_HASH=$(cat last_hash.txt)
-          fi
+          # CONFIGURATION
+          PHONE="YOUR_PHONE_NUMBER"  # e.g., 919876543210 (Include country code, NO + sign)
+          APIKEY="YOUR_API_KEY"      # Paste the key you got from CallMeBot
           
-          CURRENT_HASH="${{ steps.get_hash.outputs.current_hash }}"
-          
-          if [ "$LAST_HASH" != "$CURRENT_HASH" ]; then
-            echo "change_detected=true" >> $GITHUB_OUTPUT
-          else
-            echo "change_detected=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Send Discord Alert
-        if: steps.compare.outputs.change_detected == 'true'
-        run: |
-          curl -H "Content-Type: application/json" \
-               -d '{"content": "🚨 **UOD Admission Update!** \nChanges detected on: https://admission.uod.ac.in \nPlease check the website immediately."}' \
-               https://discord.com/api/webhooks/1516063592678428743/YFlAo5HrQljmEx3Af5m8HboU3B57TSXPbZp1HEt6pAuFYuRzRTkcpBPxKJJO6VvQMAsP
-
-      - name: Save New Hash
-        if: steps.compare.outputs.change_detected == 'true'
-        run: echo "${{ steps.get_hash.outputs.current_hash }}" > last_hash.txt
-
-      - name: Commit Changes
-        if: steps.compare.outputs.change_detected == 'true'
-        run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add last_hash.txt
-          git commit -m "Update tracking hash"
-          git push
+          for i in {1..2160}; do
+            echo "=== Check #$i at $(date) ==="
+            
+            # Get current hash
+            CURRENT_HASH=$(python tracker.py)
+            echo "Current hash: $CURRENT_HASH"
+            
+            # Check if file exists
+            LAST_HASH=""
+            if [ -f last_hash.txt ]; then
+              LAST_HASH=$(cat last_hash.txt)
+            fi
+            
+            # Compare
+            if [ "$LAST_HASH" != "$CURRENT_HASH" ] && [ -n "$LAST_HASH" ]; then
+              echo "CHANGE DETECTED!"
+              
+              # Send WhatsApp Alert via CallMeBot
+              curl -G "https://api.callmebot.com/whatsapp.php" \
+                   --data-urlencode "phone=$PHONE" \
+                   --data-urlencode "apikey=$APIKEY" \
+                   --data-urlencode "text=🚨 UOD ADMISSION UPDATE! Changes detected on https://admission.uod.ac.in Please check immediately."
+              
+              # Save new hash
+              echo "$CURRENT_HASH" > last_hash.txt
+              
+              # Commit changes
+              git config --global user.name 'github-actions[bot]'
+              git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+              git add last_hash.txt
+              git commit -m "Update tracking hash" || true
+              git push || true
+            else
+              echo "No change detected"
+            fi
+            
+            # Wait 10 seconds
+            if [ $i -lt 2160 ]; then
+              sleep 10
+            fi
+          done
